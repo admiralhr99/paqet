@@ -35,7 +35,7 @@ func sendPacket() {
 	if cfg.Role != "client" {
 		log.Fatalf("Ping command requires client configuration")
 	}
-	sendHandle, err := socket.NewSendHandle(&cfg.Network)
+	sendHandle, err := socket.NewSendHandle(&cfg.Network, &cfg.Evasion)
 	if err != nil {
 		log.Fatalf("Failed to create raw socket: %v", err)
 	}

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"paqet/internal/conf"
+	"paqet/internal/evasion"
+	"paqet/internal/flog"
 	"paqet/internal/pkg/hash"
 	"paqet/internal/pkg/iterator"
 	"runtime"
@@ -40,9 +42,16 @@ type SendHandle struct {
 	ipv6Pool    sync.Pool
 	tcpPool     sync.Pool
 	bufPool     sync.Pool
+
+	// Evasion fields
+	evasionOn   bool
+	entropyMgr  *evasion.EntropyManager
+	probeResist *evasion.ProbeResistance
+	tcpFP       *evasion.TCPFingerprint
+	firstPacket sync.Map // tracks first packet per destination "ip:port"
 }
 
-func NewSendHandle(cfg *conf.Network) (*SendHandle, error) {
+func NewSendHandle(cfg *conf.Network, evCfg *conf.Evasion) (*SendHandle, error) {
 	handle, err := newHandle(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open pcap handle: %w", err)
@@ -102,6 +111,7 @@ func NewSendHandle(cfg *conf.Network) (*SendHandle, error) {
 			},
 		},
 	}
+
 	if cfg.IPv4.Addr != nil {
 		sh.srcIPv4 = cfg.IPv4.Addr.IP
 		sh.srcIPv4RHWA = cfg.IPv4.Router
@@ -110,6 +120,16 @@ func NewSendHandle(cfg *conf.Network) (*SendHandle, error) {
 		sh.srcIPv6 = cfg.IPv6.Addr.IP
 		sh.srcIPv6RHWA = cfg.IPv6.Router
 	}
+
+	// Initialize evasion if enabled
+	if evCfg != nil && evCfg.Enabled() {
+		sh.evasionOn = true
+		sh.entropyMgr = evasion.NewEntropyManager(evCfg.EntropyMode, evCfg.SNI)
+		sh.probeResist = evasion.NewProbeResistance(evCfg.AuthSecret, evCfg.FallbackURL)
+		sh.tcpFP = evasion.NewTCPFingerprint()
+		flog.Infof("evasion enabled: mode=%s sni=%s", evCfg.EntropyMode, evCfg.SNI)
+	}
+
 	return sh, nil
 }
 
@@ -125,6 +145,12 @@ func (h *SendHandle) buildIPv4Header(dstIP net.IP) *layers.IPv4 {
 		SrcIP:    h.srcIPv4,
 		DstIP:    dstIP,
 	}
+
+	// Evasion: normalize IPv4 header to match Linux kernel fingerprint
+	if h.evasionOn && h.tcpFP != nil {
+		h.tcpFP.NormalizeIPv4(ip)
+	}
+
 	return ip
 }
 
@@ -138,6 +164,12 @@ func (h *SendHandle) buildIPv6Header(dstIP net.IP) *layers.IPv6 {
 		SrcIP:        h.srcIPv6,
 		DstIP:        dstIP,
 	}
+
+	// Evasion: normalize IPv6 header
+	if h.evasionOn && h.tcpFP != nil {
+		h.tcpFP.NormalizeIPv6(ip)
+	}
+
 	return ip
 }
 
@@ -175,6 +207,30 @@ func (h *SendHandle) buildTCPHeader(dstPort uint16, f conf.TCPF) *layers.TCP {
 }
 
 func (h *SendHandle) Write(payload []byte, addr *net.UDPAddr) error {
+	// === Evasion: first packet wrapping (auth + entropy camouflage) ===
+	if h.evasionOn && h.entropyMgr != nil && h.probeResist != nil {
+		addrKey := addr.String()
+		if _, loaded := h.firstPacket.LoadOrStore(addrKey, true); !loaded {
+			// Step 1: Prepend HMAC auth token
+			authed, err := h.probeResist.PrependAuthToken(payload)
+			if err != nil {
+				flog.Errorf("evasion: auth token failed: %v", err)
+				// Fall through with original payload
+			} else {
+				// Step 2: Wrap with TLS ClientHello
+				wrapped, err := h.entropyMgr.WrapFirstPacket(authed)
+				if err != nil {
+					flog.Errorf("evasion: entropy wrap failed: %v", err)
+					// Fall through with authed payload
+					payload = authed
+				} else {
+					payload = wrapped
+					flog.Debugf("evasion: first packet wrapped (%d bytes) for %s", len(payload), addrKey)
+				}
+			}
+		}
+	}
+
 	buf := h.bufPool.Get().(gopacket.SerializeBuffer)
 	ethLayer := h.ethPool.Get().(*layers.Ethernet)
 	defer func() {

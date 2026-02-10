@@ -23,17 +23,17 @@ type PacketConn struct {
 }
 
 // &OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: err}
-func New(ctx context.Context, cfg *conf.Network) (*PacketConn, error) {
+func New(ctx context.Context, cfg *conf.Network, evCfg *conf.Evasion) (*PacketConn, error) {
 	if cfg.Port == 0 {
 		cfg.Port = 32768 + rand.Intn(32768)
 	}
 
-	sendHandle, err := NewSendHandle(cfg)
+	sendHandle, err := NewSendHandle(cfg, evCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create send handle on %s: %v", cfg.Interface.Name, err)
 	}
 
-	recvHandle, err := NewRecvHandle(cfg)
+	recvHandle, err := NewRecvHandle(cfg, evCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create receive handle on %s: %v", cfg.Interface.Name, err)
 	}

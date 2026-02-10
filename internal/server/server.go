@@ -40,7 +40,7 @@ func (s *Server) Start() error {
 		cancel()
 	}()
 
-	pConn, err := socket.New(ctx, &s.cfg.Network)
+	pConn, err := socket.New(ctx, &s.cfg.Network, &s.cfg.Evasion)
 	if err != nil {
 		return fmt.Errorf("could not create raw packet conn: %w", err)
 	}

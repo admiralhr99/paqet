@@ -20,83 +20,91 @@ socks5:
 
 # Network interface settings
 network:
-  interface: "en0"                          # CHANGE ME: Network interface (en0, eth0, wlan0, etc.)
+  interface: "Ethernet"                          # CHANGE ME: Network interface (en0, eth0, wlan0, etc.)
   # guid: "\Device\NPF_{...}"               # Windows only (Npcap).
 
   # IPv4 configuration
   ipv4:
-    addr: "192.168.1.100:0"                 # CHANGE ME: Local IP (use port 0 for random port)
+    addr: "192.168.209.124:0"                 # CHANGE ME: Local IP (use port 0 for random port)
     router_mac: "00:08:e3:ff:fc:28"         # CHANGE ME: Gateway/router MAC address
 
-  # IPv6 configuration (optional)
-  #ipv6:
-  #  addr: "[2001:db8::1]:0"                 # CHANGE ME: Local IPv6 address and port (optional)
-  #  router_mac: "aa:bb:cc:dd:ee:ff"         # CHANGE ME: Gateway/router MAC address for IPv6
-
   tcp:
-    local_flag: ["PA"]                      # Local TCP flags (Push+Ack default)
-    remote_flag: ["PA"]                     # Remote TCP flags (Push+Ack default)
+    local_flag: ["SA"]                      # Local TCP flags (Push+Ack default)
+    remote_flag: ["SA"]                     # Remote TCP flags (Push+Ack default)
 
   # PCAP settings (optional - will use defaults)
-  # pcap:
-    # sockbuf: 4194304                        # 4MB buffer (default for client)
+  pcap:
+    sockbuf: 33554432                        # 4MB buffer (default for client)
 
 # Server connection settings
 server:
-  addr: "10.0.0.100:9999"  # CHANGE ME: paqet server address and port
+  addr: "192.168.72.89:51000"  # CHANGE ME: paqet server address and port
 
 # Transport protocol configuration
 transport:
   protocol: "kcp"  # Transport protocol (currently only "kcp" supported)
-  conn: 1          # Number of connections (1-256, default: 1)
-  
-  # tcpbuf: 8192   # TCP buffer size in bytes
-  # udpbuf: 4096   # UDP buffer size in bytes
+  conn: 4          # Number of connections (1-256, default: 1)
+
+  tcpbuf: 65536   # TCP buffer size in bytes
+  udpbuf: 65536   # UDP buffer size in bytes
 
   # KCP protocol settings
   kcp:
-    mode: "fast"              # KCP mode: normal, fast, fast2, fast3, manual
+    mode: "manual"              # KCP mode: normal, fast, fast2, fast3, manual
 
     # Manual mode parameters (only used when mode="manual")
-    # nodelay: 1              # 0=disable, 1=enable
+    nodelay: 1              # 0=disable, 1=enable
                               # Enable for lower latency & aggressive retransmission
                               # Disable for TCP-like conservative behavior
-                  
-    # interval: 10            # Internal update timer interval in milliseconds (10-5000ms)
+    interval: 20            # Internal update timer interval in milliseconds (10-5000ms)
                               # Lower values increase responsiveness but raise CPU usage
 
-    # resend: 2               # Fast retransmit trigger (0-2)
+    resend: 2               # Fast retransmit trigger (0-2)
                               # 0 = disabled (wait for timeout only)
                               # 1 = most aggressive (retransmit after 1 ACK skip)
                               # 2 = aggressive (retransmit after 2 ACK skips)
 
-    # nocongestion: 1         # Congestion control: 0=enabled, 1=disabled
+    nocongestion: 1         # Congestion control: 0=enabled, 1=disabled
                               # 0 = TCP-like fair congestion control (slow start, congestion avoidance)
                               # 1 = disable congestion control for maximum speed
 
-    # wdelay: false           # Write batching behavior
+    wdelay: false           # Write batching behavior
                               # false = flush immediately (low latency, recommended for real-time)
                               # true = batch writes until next update interval (higher throughput)
                               # Controls when data is actually sent to the network
 
-    # acknodelay: true        # ACK sending behavior
+    acknodelay: true        # ACK sending behavior
                               # true = send ACKs immediately when packets are received (lower latency)
                               # false = batch ACKs (more bandwidth efficient)
                               # Setting true reduces latency but increases bandwidth usage
 
-    # mtu: 1350              # Maximum transmission unit (50-1500)
-    # rcvwnd: 512            # Receive window size (default for client)  
-    # sndwnd: 512            # Send window size (default for client)
+    mtu: 1200              # Maximum transmission unit (50-1500)
+    rcvwnd: 1024            # Receive window size (default for client)  
+    sndwnd: 1024            # Send window size (default for client)
 
     # Encryption settings
-    # block: "aes"                    # Encryption: aes, aes-128, aes-128-gcm, aes-192, salsa20, blowfish, twofish, cast5, 3des, tea, xtea, xor, sm4, none.
-    key: "your-secret-key-here"       # CHANGE ME: Secret key (must match server)
+    block: "aes-128-gcm"                    # Encryption: aes, aes-128, aes-128-gcm, aes-192, salsa20, blowfish, twofish, cast5, 3des, tea, xtea, xor, sm4, none.
+    key: "88d63b4ae47986bdf33ead6e36c53c2ca375ae7d8baab699dbdd99e1ef21fe0f"       # CHANGE ME: Secret key (must match server)
 
     # Buffer settings (optional)
-    # smuxbuf: 4194304       # 4MB SMUX buffer
-    # streambuf: 2097152     # 2MB stream buffer
+    smuxbuf: 4194304       # 4MB SMUX buffer
+    streambuf: 2097152     # 2MB stream buffer
 
 # Optional Forward Error Correction (FEC) - currently disabled
 # Use these only if you need FEC for very lossy networks:
-#   dshard: 10    # Data shards for FEC
-#   pshard: 3     # Parity shards for FEC
+    dshard: 10    # Data shards for FEC
+    pshard: 3     # Parity shards for FEC
+#
+# Important: Client Firewall Configuration Required!
+# 
+# Since paqet uses pcap to bypass standard firewalls, you MUST configure
+# iptables on the client to prevent kernel interference:
+#
+#sudo iptables -t raw -F
+#sudo iptables -t mangle -F
+#sudo iptables -t raw -A OUTPUT -p tcp -d server-ip --dport port -j NOTRACK
+#sudo iptables -t raw -A PREROUTING -p tcp -s server-ip --sport port -j NOTRACK
+#sudo iptables -t mangle -A OUTPUT -p tcp -d server-ip --dport port --tcp-flags RST RST -j DROP
+#sudo netfilter-persistent save
+#
+# Replace server-ip and port with your actual server ip address and listen port.
