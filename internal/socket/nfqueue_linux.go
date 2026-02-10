@@ -60,10 +60,6 @@ func (h *linuxNfqHandle) Close() error {
 	return unix.Close(h.fd)
 }
 
-// nfqPacketHandler is called for each intercepted packet.
-// Returns (possibly modified packet data, accept bool).
-type nfqPacketHandler func(pktData []byte) ([]byte, bool)
-
 // startNFQueue opens a netlink NFQUEUE socket, binds to the given queue number,
 // and starts processing packets in a goroutine.
 func startNFQueue(ctx context.Context, queueNum uint16, handler nfqPacketHandler) (nfqHandle, error) {

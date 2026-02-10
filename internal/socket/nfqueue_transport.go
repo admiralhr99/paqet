@@ -79,6 +79,10 @@ type nfqHandle interface {
 	Close() error
 }
 
+// nfqPacketHandler is called for each intercepted packet.
+// Returns (possibly modified packet data, accept bool).
+type nfqPacketHandler func(pktData []byte) ([]byte, bool)
+
 // NewNFQueuePacketConn creates an NFQUEUE-based PacketConn.
 func NewNFQueuePacketConn(ctx context.Context, cfg *conf.Network, evCfg *conf.Evasion) (*NFQueuePacketConn, error) {
 	ctx, cancel := context.WithCancel(ctx)
