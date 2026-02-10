@@ -6,6 +6,7 @@ import (
 
 	"paqet/internal/flog"
 	"paqet/internal/protocol"
+	"paqet/internal/socket"
 	"paqet/internal/tnet"
 )
 
@@ -22,14 +23,16 @@ func (s *Server) handleConn(ctx context.Context, conn tnet.Conn) {
 			flog.Errorf("failed to accept stream on %s: %v", conn.RemoteAddr(), err)
 			return
 		}
-		s.wg.Go(func() {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
 			defer strm.Close()
 			if err := s.handleStrm(ctx, strm); err != nil {
 				flog.Errorf("stream %d from %s closed with error: %v", strm.SID(), strm.RemoteAddr(), err)
 			} else {
 				flog.Debugf("stream %d from %s closed", strm.SID(), strm.RemoteAddr())
 			}
-		})
+		}()
 	}
 }
 
@@ -46,7 +49,9 @@ func (s *Server) handleStrm(ctx context.Context, strm tnet.Strm) error {
 		return s.handlePing(strm)
 	case protocol.PTCPF:
 		if len(p.TCPF) != 0 {
-			s.pConn.SetClientTCPF(strm.RemoteAddr(), p.TCPF)
+			if setter, ok := s.pConn.(socket.ClientTCPFSetter); ok {
+				setter.SetClientTCPF(strm.RemoteAddr(), p.TCPF)
+			}
 		}
 		return nil
 	case protocol.PTCP:

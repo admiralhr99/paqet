@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"sync"
@@ -17,7 +18,7 @@ import (
 
 type Server struct {
 	cfg   *conf.Conf
-	pConn *socket.PacketConn
+	pConn net.PacketConn
 	wg    sync.WaitGroup
 }
 
@@ -40,9 +41,17 @@ func (s *Server) Start() error {
 		cancel()
 	}()
 
-	pConn, err := socket.New(ctx, &s.cfg.Network, &s.cfg.Evasion)
+	// For TCP and NFQUEUE modes, ensure the listen port is set on the network config
+	// since those modes derive the server port from cfg.Network.Port
+	if (s.cfg.Network.Mode == "tcp" || s.cfg.Network.Mode == "nfqueue") && s.cfg.Network.Port == 0 {
+		if s.cfg.Listen.Addr != nil {
+			s.cfg.Network.Port = s.cfg.Listen.Addr.Port
+		}
+	}
+
+	pConn, err := socket.NewPacketConn(ctx, &s.cfg.Network, &s.cfg.Evasion)
 	if err != nil {
-		return fmt.Errorf("could not create raw packet conn: %w", err)
+		return fmt.Errorf("could not create packet conn: %w", err)
 	}
 	s.pConn = pConn
 
@@ -53,9 +62,11 @@ func (s *Server) Start() error {
 	defer listener.Close()
 	flog.Infof("Server started - listening for packets on :%d", s.cfg.Listen.Addr.Port)
 
-	s.wg.Go(func() {
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
 		s.listen(ctx, listener)
-	})
+	}()
 
 	s.wg.Wait()
 	flog.Infof("Server shutdown completed")
@@ -80,9 +91,11 @@ func (s *Server) listen(ctx context.Context, listener tnet.Listener) {
 		}
 		flog.Infof("accepted new connection from %s (local: %s)", conn.RemoteAddr(), conn.LocalAddr())
 
-		s.wg.Go(func() {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
 			defer conn.Close()
 			s.handleConn(ctx, conn)
-		})
+		}()
 	}
 }
