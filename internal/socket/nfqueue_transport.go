@@ -29,6 +29,7 @@ import (
 // This gives the best of both worlds: real TCP state + full packet control.
 // Requires root/CAP_NET_ADMIN and iptables rules to direct packets to the queue.
 type NFQueuePacketConn struct {
+	connMu     sync.Mutex   // protects conn (client mode lazy dial)
 	conn       net.Conn     // Real kernel TCP connection
 	listener   net.Listener // Server mode listener
 	remoteAddr *net.UDPAddr
@@ -304,6 +305,9 @@ func readFull(r net.Conn, buf []byte) (int, error) {
 
 // ensureClientConn creates the client TCP connection on first write.
 func (nc *NFQueuePacketConn) ensureClientConn(addr *net.UDPAddr) (net.Conn, error) {
+	nc.connMu.Lock()
+	defer nc.connMu.Unlock()
+
 	if nc.conn != nil {
 		return nc.conn, nil
 	}

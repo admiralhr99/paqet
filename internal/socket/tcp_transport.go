@@ -28,9 +28,10 @@ type TCPPacketConn struct {
 	isServer   bool
 
 	// Active connections
-	clientConn net.Conn              // single connection (client mode)
-	serverMu   sync.RWMutex          // protects serverConns
-	serverConns map[string]*tcpPeer  // addr string -> peer (server mode)
+	clientMu    sync.Mutex              // protects clientConn
+	clientConn  net.Conn                // single connection (client mode)
+	serverMu    sync.RWMutex            // protects serverConns
+	serverConns map[string]*tcpPeer     // addr string -> peer (server mode)
 
 	// Evasion
 	evasionOn   bool
@@ -203,6 +204,9 @@ func (tc *TCPPacketConn) readLoop(conn net.Conn, addr *net.UDPAddr) {
 
 // ensureClientConn lazily creates the client TCP connection on first write.
 func (tc *TCPPacketConn) ensureClientConn(addr *net.UDPAddr) (net.Conn, error) {
+	tc.clientMu.Lock()
+	defer tc.clientMu.Unlock()
+
 	if tc.clientConn != nil {
 		return tc.clientConn, nil
 	}
