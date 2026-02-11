@@ -9,7 +9,6 @@ import (
 	"paqet/internal/conf"
 	"paqet/internal/evasion"
 	"paqet/internal/flog"
-	"paqet/internal/pkg/hash"
 	"paqet/internal/pkg/iterator"
 	"sync"
 	"sync/atomic"
@@ -425,19 +424,12 @@ func (tc *TUNPacketConn) buildTCPHeader(dstPort uint16, f conf.TCPF) *layers.TCP
 }
 
 func (tc *TUNPacketConn) getClientTCPF(dstIP net.IP, dstPort uint16) conf.TCPF {
-	tc.tcpF.mu.RLock()
-	defer tc.tcpF.mu.RUnlock()
-	if ff := tc.tcpF.clientTCPF[hash.IPAddr(dstIP, dstPort)]; ff != nil {
-		return ff.Next()
-	}
-	return tc.tcpF.tcpF.Next()
+	return tc.tcpF.getClientTCPF(dstIP, dstPort)
 }
 
 func (tc *TUNPacketConn) SetClientTCPF(addr net.Addr, f []conf.TCPF) {
 	a := *addr.(*net.UDPAddr)
-	tc.tcpF.mu.Lock()
-	tc.tcpF.clientTCPF[hash.IPAddr(a.IP, uint16(a.Port))] = &iterator.Iterator[conf.TCPF]{Items: f}
-	tc.tcpF.mu.Unlock()
+	tc.tcpF.setClientTCPF(a.IP, uint16(a.Port), f)
 }
 
 func (tc *TUNPacketConn) ReadFrom(data []byte) (int, net.Addr, error) {

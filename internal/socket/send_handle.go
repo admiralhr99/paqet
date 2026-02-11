@@ -1,3 +1,5 @@
+//go:build cgo
+
 package socket
 
 import (
@@ -7,7 +9,6 @@ import (
 	"paqet/internal/conf"
 	"paqet/internal/evasion"
 	"paqet/internal/flog"
-	"paqet/internal/pkg/hash"
 	"paqet/internal/pkg/iterator"
 	"runtime"
 	"sync"
@@ -18,12 +19,6 @@ import (
 	"github.com/gopacket/gopacket/layers"
 	"github.com/gopacket/gopacket/pcap"
 )
-
-type TCPF struct {
-	tcpF       iterator.Iterator[conf.TCPF]
-	clientTCPF map[uint64]*iterator.Iterator[conf.TCPF]
-	mu         sync.RWMutex
-}
 
 type SendHandle struct {
 	handle      *pcap.Handle
@@ -271,19 +266,12 @@ func (h *SendHandle) Write(payload []byte, addr *net.UDPAddr) error {
 }
 
 func (h *SendHandle) getClientTCPF(dstIP net.IP, dstPort uint16) conf.TCPF {
-	h.tcpF.mu.RLock()
-	defer h.tcpF.mu.RUnlock()
-	if ff := h.tcpF.clientTCPF[hash.IPAddr(dstIP, dstPort)]; ff != nil {
-		return ff.Next()
-	}
-	return h.tcpF.tcpF.Next()
+	return h.tcpF.getClientTCPF(dstIP, dstPort)
 }
 
 func (h *SendHandle) setClientTCPF(addr net.Addr, f []conf.TCPF) {
 	a := *addr.(*net.UDPAddr)
-	h.tcpF.mu.Lock()
-	h.tcpF.clientTCPF[hash.IPAddr(a.IP, uint16(a.Port))] = &iterator.Iterator[conf.TCPF]{Items: f}
-	h.tcpF.mu.Unlock()
+	h.tcpF.setClientTCPF(a.IP, uint16(a.Port), f)
 }
 
 func (h *SendHandle) Close() {
