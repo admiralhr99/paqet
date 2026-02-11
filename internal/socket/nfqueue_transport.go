@@ -172,50 +172,23 @@ func (nc *NFQueuePacketConn) handleOutgoing(pktData []byte) ([]byte, bool) {
 }
 
 // handleIncoming processes incoming packets captured by NFQUEUE.
-// It extracts TCP payloads and puts them in the read channel after evasion unwrapping.
+// Only normalizes headers — actual data is read from the TCP socket via readTCPLoop.
+// NFQUEUE sees raw TCP segments (not length-prefix framed), so payload extraction
+// must NOT happen here to avoid corrupting the KCP stream with partial/duplicate data.
 func (nc *NFQueuePacketConn) handleIncoming(pktData []byte) ([]byte, bool) {
-	// Parse the IP packet
-	_, tcpPayloadOffset, srcAddr := parseIPTCPPacket(pktData)
-	if tcpPayloadOffset <= 0 || srcAddr == nil {
-		return pktData, true
+	if !nc.evasionOn {
+		return pktData, true // accept unmodified
 	}
 
-	tcpPayload := pktData[tcpPayloadOffset:]
-	if len(tcpPayload) == 0 {
-		return pktData, true // no payload, accept
-	}
-
-	payload := make([]byte, len(tcpPayload))
-	copy(payload, tcpPayload)
-
-	// Evasion: unwrap first packet
-	if nc.evasionOn && nc.entropyMgr != nil && nc.probeResist != nil {
-		addrKey := srcAddr.String()
-		if _, loaded := nc.firstRecv.LoadOrStore(addrKey, true); !loaded {
-			unwrapped, err := nc.entropyMgr.UnwrapFirstPacket(payload)
-			if err != nil {
-				flog.Debugf("nfqueue transport: entropy unwrap failed from %s: %v", addrKey, err)
-				nc.firstRecv.Delete(addrKey)
-				return pktData, true
-			}
-			kcpPayload, valid, err := nc.probeResist.ExtractAndValidate(unwrapped)
-			if err != nil || !valid {
-				flog.Debugf("nfqueue transport: auth failed from %s (valid=%v, err=%v)", addrKey, valid, err)
-				nc.firstRecv.Delete(addrKey)
-				return pktData, true
-			}
-			flog.Debugf("nfqueue transport: first packet unwrapped from %s", addrKey)
-			payload = kcpPayload
+	// Apply TCP fingerprint normalization to incoming packet headers
+	if nc.tcpFP != nil {
+		modified := normalizeTCPHeaders(pktData, nc.tcpFP)
+		if modified != nil {
+			pktData = modified
 		}
 	}
 
-	select {
-	case nc.readCh <- nfqFrame{data: payload, addr: srcAddr}:
-	default:
-		flog.Debugf("nfqueue transport: read channel full, dropping packet")
-	}
-
-	return pktData, true // accept the original packet to kernel
+	return pktData, true // accept to kernel TCP stack
 }
 
 // acceptLoop accepts incoming TCP connections (server mode).

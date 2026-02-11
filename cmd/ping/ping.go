@@ -37,6 +37,9 @@ func sendPacket() {
 	if cfg.Role != "client" {
 		log.Fatalf("Ping command requires client configuration")
 	}
+	if cfg.Network.Mode != "" && cfg.Network.Mode != "pcap" {
+		log.Fatalf("Ping command only works with pcap mode (current mode: %s)", cfg.Network.Mode)
+	}
 	sendHandle, err := socket.NewSendHandle(&cfg.Network, &cfg.Evasion)
 	if err != nil {
 		log.Fatalf("Failed to create raw socket: %v", err)
